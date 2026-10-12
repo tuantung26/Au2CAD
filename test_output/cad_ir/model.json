@@ -1,0 +1,10 @@
+{
+  "part_name": "MechanicalPart",
+  "units": "mm",
+  "features": [],
+  "global_constraints": [],
+  "metadata": {
+    "conflicts": [],
+    "warnings": []
+  }
+}

@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Cpu,
-  Layers,
   Upload,
   Play,
   Download,
   Settings,
-  CheckCircle,
   FileText,
   Boxes,
   Compass,
@@ -14,6 +12,11 @@ import {
   ShieldCheck,
   RefreshCw,
   FolderOpen,
+  Trash2,
+  Camera,
+  X,
+  ImagePlus,
+  CheckCircle2,
 } from 'lucide-react';
 
 import CADViewer from './components/CADViewer';
@@ -30,27 +33,27 @@ export default function App() {
   // Pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState(null);
-  const [pipelineProgress, setPipelineProgress] = useState(100);
-  const [pipelineStage, setPipelineStage] = useState('Completed');
-  const [latestLog, setLatestLog] = useState('Sẵn sàng. Dữ liệu chuẩn Mechanical Bracket đã nạp.');
+  const [pipelineProgress, setPipelineProgress] = useState(0);
+  const [pipelineStage, setPipelineStage] = useState('Sẵn sàng');
+  const [latestLog, setLatestLog] = useState('Chào mừng đến với Au2CAD — nhập thông tin bản vẽ và khởi chạy pipeline.');
 
   // Form Inputs
-  const [blueprintName, setBlueprintName] = useState('mechanical_bracket_drawing.png');
-  const [descriptionText, setDescriptionText] = useState('Mechanical Bracket: Base plate 100x62x18 mm, Boss OD44/ID28, Height 50mm, Front cutout R22.');
+  const [blueprintName, setBlueprintName] = useState('');
+  const [blueprintFile, setBlueprintFile] = useState(null);  // actual File object
+  const [photoFiles, setPhotoFiles] = useState([]);           // File[] of physical photos
+  const [photoPreviews, setPhotoPreviews] = useState([]);     // base64 preview URLs
+  const [descriptionText, setDescriptionText] = useState('');
   const [mockCADFit, setMockCADFit] = useState(true);
   const [skipMold, setSkipMold] = useState(false);
+  const [viewerRefreshKey, setViewerRefreshKey] = useState(0);
+  const photoInputRef = useRef(null);
 
   // Model & Report Data
   const [cadIRData, setCadIRData] = useState(null);
   const [moldData, setMoldData] = useState(null);
   const [validationData, setValidationData] = useState(null);
 
-  // Load initial demo metadata & models
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  const fetchInitialData = async () => {
+  const fetchInitialData = useCallback(async () => {
     try {
       const cadRes = await fetch('/api/model/cad-ir');
       if (cadRes.ok) {
@@ -70,21 +73,113 @@ export default function App() {
     } catch (e) {
       console.log('Using local fallback demo state');
     }
-  };
+  }, []);
+
+  // Add physical photos (multi-select, deduplicated)
+  const handleAddPhotos = useCallback((files) => {
+    const incoming = Array.from(files);
+    setPhotoFiles((prev) => {
+      const existingNames = new Set(prev.map((f) => f.name));
+      return [...prev, ...incoming.filter((f) => !existingNames.has(f.name))];
+    });
+    incoming.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreviews((prev) => {
+          const existingNames = new Set(prev.map((p) => p.name));
+          if (existingNames.has(file.name)) return prev;
+          return [...prev, { name: file.name, url: e.target.result }];
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handleRemovePhoto = useCallback((name) => {
+    setPhotoFiles((prev) => prev.filter((f) => f.name !== name));
+    setPhotoPreviews((prev) => prev.filter((p) => p.name !== name));
+  }, []);
+
+  // Clear all inputs and reset to fresh state
+  const handleClearInput = useCallback(() => {
+    setBlueprintName('');
+    setBlueprintFile(null);
+    setPhotoFiles([]);
+    setPhotoPreviews([]);
+    setDescriptionText('');
+    setMockCADFit(true);
+    setSkipMold(false);
+    setPipelineRunning(false);
+    setCurrentTaskId(null);
+    setPipelineProgress(0);
+    setPipelineStage('Sẵn sàng');
+    setLatestLog('Đã xóa input. Nhập thông tin mới để bắt đầu.');
+    setCadIRData(null);
+    setMoldData(null);
+    setValidationData(null);
+  }, []);
+
+  // Called by AgentChat when agent rebuilds the model
+  const handleModelRefresh = useCallback(() => {
+    setViewerRefreshKey((k) => k + 1);
+    fetchInitialData();
+    setLatestLog('🤖 Agent đã cập nhật mô hình — đang tải lại viewer...');
+  }, [fetchInitialData]);
+
+  // Load initial demo metadata & models
+  useEffect(() => {
+    // Don't auto-load on start — wait for user input
+  }, []);
 
   // Run Pipeline API call & polling
   const handleRunPipeline = async () => {
+    // Validate: need at least one input
+    const hasDrawing = !!blueprintName || !!blueprintFile;
+    const hasPhotos = photoFiles.length > 0;
+    const hasDescription = !!descriptionText.trim();
+    if (!hasDrawing && !hasPhotos && !hasDescription) {
+      alert('Vui lòng cung cấp ít nhất một trong ba: Bản vẽ kỹ thuật, Ảnh chụp vật thể, hoặc Ghi chú mô tả.');
+      return;
+    }
+
     setPipelineRunning(true);
+    setPipelineProgress(3);
+    setPipelineStage('Đang upload...');
+    setLatestLog('Đang tải file lên server...');
+
+    // Step 1: Upload all files first
+    let uploadedDrawing = blueprintName || null;
+    let uploadedPhotos = [];
+    try {
+      if (blueprintFile || photoFiles.length > 0) {
+        const formData = new FormData();
+        if (blueprintFile) formData.append('drawing', blueprintFile);
+        photoFiles.forEach((f) => formData.append('photos', f));
+        if (descriptionText.trim()) formData.append('description', descriptionText.trim());
+
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          if (uploadData.files?.drawing) uploadedDrawing = uploadData.files.drawing;
+          if (uploadData.files?.photos) uploadedPhotos = uploadData.files.photos;
+          setLatestLog(`Đã upload ${Object.keys(uploadData.files || {}).length} file thành công.`);
+        }
+      }
+    } catch (uploadErr) {
+      console.warn('Upload warning:', uploadErr);
+    }
+
     setPipelineProgress(5);
     setPipelineStage('Đang khởi tạo...');
-    setLatestLog('Gửi yêu cầu tới Au2CAD Cloud Engine...');
+    setLatestLog('Gửi yêu cầu tới Au2CAD Engine...');
 
     try {
       const res = await fetch('/api/pipeline/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          drawing_filename: blueprintName,
+          drawing_filename: uploadedDrawing,
+          photo_filenames: uploadedPhotos,
           context_text: descriptionText,
           mock_cadfit: mockCADFit,
           skip_mold: skipMold,
@@ -143,11 +238,11 @@ export default function App() {
             <Cpu size={22} />
           </div>
           <div>
-            <div className="brand-title">Au2CAD Cloud</div>
+            <div className="brand-title">Au2CAD</div>
             <div className="brand-subtitle">AGENTIC REVERSE ENGINEERING & PRELIMINARY MOLD DESIGN</div>
           </div>
           <div className="cloud-pill">
-            <span className="pulse-dot" /> Cloud Ready (FastAPI + React)
+            <span className="pulse-dot" /> FastAPI + React
           </div>
         </div>
 
@@ -170,34 +265,142 @@ export default function App() {
               <FolderOpen size={16} color="#06b6d4" />
               <span>Input & Pipeline Config</span>
             </div>
+            <button
+              className="btn btn-danger-sm"
+              onClick={handleClearInput}
+              title="Xóa tất cả input và nhập mới"
+              style={{ padding: '5px 10px', fontSize: '0.75rem', gap: 5 }}
+            >
+              <Trash2 size={13} /> Clear
+            </button>
           </div>
 
           <div className="panel-content">
-            {/* Input Selection Card */}
-            <div className="section-card">
-              <div className="card-title">
-                <span>Bản vẽ kỹ thuật (SSOT)</span>
-                <span className="feature-tag">Bắt buộc</span>
-              </div>
-              <div className="dropzone">
-                <Upload size={22} className="dropzone-icon" />
-                <div className="dropzone-label">blueprint_drawing.png</div>
-                <div className="dropzone-hint">Kéo thả bản vẽ kỹ thuật (.png, .jpg, .pdf)</div>
-              </div>
+
+            {/* ─── Input status badges ─── */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[{ label: 'Bản vẽ', active: !!blueprintName }, { label: `Ảnh vật (${photoFiles.length})`, active: photoFiles.length > 0 }, { label: 'Mô tả', active: !!descriptionText.trim() }].map((b) => (
+                <span key={b.label} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  fontSize: '0.7rem', fontWeight: 600, padding: '3px 8px',
+                  borderRadius: 999,
+                  background: b.active ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${b.active ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                  color: b.active ? '#10b981' : '#475569',
+                }}>
+                  {b.active && <CheckCircle2 size={10} />}
+                  {b.label}
+                </span>
+              ))}
             </div>
 
-            {/* Engineer Context / Notes */}
+            {/* ─── 1. Bản vẽ kỹ thuật ─── */}
             <div className="section-card">
               <div className="card-title">
-                <span>Ghi chú kỹ sư (Context)</span>
-                <FileText size={14} color="#94a3b8" />
+                <span>① Bản vẽ kỹ thuật</span>
+                <span className="feature-tag" style={{ background: 'rgba(6,182,212,0.15)', color: '#67e8f9' }}>Tùy chọn</span>
+              </div>
+              <div
+                className="dropzone"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files[0];
+                  if (file) { setBlueprintName(file.name); setBlueprintFile(file); }
+                }}
+                onClick={() => document.getElementById('blueprint-file-input').click()}
+                style={blueprintName ? { borderColor: 'rgba(6,182,212,0.5)', background: 'rgba(6,182,212,0.06)' } : {}}
+              >
+                <Upload size={20} className="dropzone-icon" style={{ color: blueprintName ? '#06b6d4' : undefined }} />
+                <div className="dropzone-label" style={{ fontSize: '0.8rem' }}>
+                  {blueprintName || 'Kéo thả hoặc nhấn để chọn'}
+                </div>
+                <div className="dropzone-hint">.png .jpg .pdf — để trống để dùng demo</div>
+              </div>
+              {blueprintName && (
+                <button onClick={() => { setBlueprintName(''); setBlueprintFile(null); }}
+                  style={{ marginTop: 6, fontSize: '0.7rem', color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <X size={11} /> Xóa bản vẽ
+                </button>
+              )}
+              <input id="blueprint-file-input" type="file" accept=".png,.jpg,.jpeg,.pdf,.webp"
+                style={{ display: 'none' }}
+                onChange={(e) => { const f = e.target.files[0]; if (f) { setBlueprintName(f.name); setBlueprintFile(f); } }}
+              />
+            </div>
+
+            {/* ─── 2. Ảnh chụp vật thể ─── */}
+            <div className="section-card">
+              <div className="card-title">
+                <span>② Ảnh chụp vật thể</span>
+                <span className="feature-tag" style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>Tùy chọn</span>
+              </div>
+
+              {/* Photo thumbnails */}
+              {photoPreviews.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {photoPreviews.map((p) => (
+                    <div key={p.name} style={{ position: 'relative', width: 56, height: 56 }}>
+                      <img src={p.url} alt={p.name} title={p.name}
+                        style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6,
+                          border: '1px solid rgba(139,92,246,0.4)' }} />
+                      <button onClick={() => handleRemovePhoto(p.name)}
+                        style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16,
+                          borderRadius: '50%', background: '#f43f5e', border: 'none',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: 'pointer', padding: 0 }}>
+                        <X size={9} color="#fff" />
+                      </button>
+                    </div>
+                  ))}
+                  {/* Add more button */}
+                  <div onClick={() => photoInputRef.current?.click()}
+                    style={{ width: 56, height: 56, borderRadius: 6, border: '1.5px dashed rgba(139,92,246,0.4)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', color: '#8b5cf6', background: 'rgba(139,92,246,0.05)' }}>
+                    <ImagePlus size={18} />
+                  </div>
+                </div>
+              )}
+
+              {photoPreviews.length === 0 && (
+                <div className="dropzone"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); handleAddPhotos(e.dataTransfer.files); }}
+                  onClick={() => photoInputRef.current?.click()}
+                  style={{ borderColor: 'rgba(139,92,246,0.3)', cursor: 'pointer' }}
+                >
+                  <Camera size={20} className="dropzone-icon" style={{ color: '#8b5cf6' }} />
+                  <div className="dropzone-label" style={{ fontSize: '0.8rem' }}>Kéo thả hoặc nhấn để chọn</div>
+                  <div className="dropzone-hint">Nhiều ảnh, góc chụp khác nhau càng tốt</div>
+                </div>
+              )}
+
+              <input ref={photoInputRef} type="file" multiple
+                accept=".png,.jpg,.jpeg,.webp,.heic"
+                style={{ display: 'none' }}
+                onChange={(e) => handleAddPhotos(e.target.files)}
+              />
+
+              {photoPreviews.length > 0 && (
+                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
+                  {photoFiles.length} ảnh đã chọn — VLM sẽ phân tích hình dạng 3D từ ảnh thực
+                </div>
+              )}
+            </div>
+
+            {/* ─── 3. Ghi chú mô tả ─── */}
+            <div className="section-card">
+              <div className="card-title">
+                <span>③ Ghi chú mô tả</span>
+                <span className="feature-tag" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>Tùy chọn</span>
               </div>
               <textarea
                 style={{
                   width: '100%',
-                  height: 64,
+                  height: 72,
                   background: 'var(--bg-input)',
-                  border: '1px solid var(--border-subtle)',
+                  border: `1px solid ${descriptionText.trim() ? 'rgba(245,158,11,0.35)' : 'var(--border-subtle)'}`,
                   borderRadius: 'var(--radius-sm)',
                   color: '#e2e8f0',
                   fontSize: '0.74rem',
@@ -205,11 +408,14 @@ export default function App() {
                   padding: 8,
                   resize: 'none',
                   outline: 'none',
+                  transition: 'border-color 0.2s',
                 }}
+                placeholder="Ví dụ: Boss Ø44/ID28 cao 50mm, Base plate 100×62×18mm. Mô tả càng chi tiết, kết quả CAD càng chính xác..."
                 value={descriptionText}
                 onChange={(e) => setDescriptionText(e.target.value)}
               />
             </div>
+
 
             {/* Pipeline Configuration Switches */}
             <div className="section-card">
@@ -312,6 +518,7 @@ export default function App() {
         {/* CENTER VIEWPORT: Three.js Interactive 3D CAD Stage */}
         <section className="viewport-panel">
           <CADViewer
+            key={viewerRefreshKey}
             viewMode={viewMode}
             setViewMode={setViewMode}
             moldReport={moldData}
@@ -351,7 +558,7 @@ export default function App() {
             {activeTab === 'cadir' && <CADIRViewer cadIR={cadIRData} />}
             {activeTab === 'mold' && <MoldInspector moldReport={moldData} />}
             {activeTab === 'validation' && <ValidationInspector report={validationData} />}
-            {activeTab === 'chat' && <AgentChat />}
+            {activeTab === 'chat' && <AgentChat onModelRefresh={handleModelRefresh} />}
           </div>
         </aside>
       </main>
@@ -363,7 +570,7 @@ export default function App() {
           <span className="log-ticker">{latestLog}</span>
         </div>
         <div>
-          <span>Au2CAD v1.0 • Cloud API: http://127.0.0.1:8000</span>
+          <span>Au2CAD v1.0 • API: http://127.0.0.1:8000</span>
         </div>
       </footer>
     </div>

@@ -73,9 +73,9 @@ docker run -d -p 8000:8000 --name au2cad au2cad-cloud:latest
 - **Tài khoản AWS:** Đã kích hoạt thẻ thanh toán và có IAM User quyền phù hợp (hoặc AdministratorAccess).
 - **AWS CLI (Tùy chọn):** Đã cài đặt và chạy `aws configure` để cấu hình Access Key / Secret Key.
 - **Cấu hình phần cứng tối thiểu (Specs):**
-  - **CPU:** Tối thiểu 2 vCPU.
-  - **RAM:** Tối thiểu 4 GB (đảm bảo CadQuery và thư viện xử lý 3D Open3D/Trimesh chạy mượt mà, tránh OOM).
-  - **Ổ cứng (Disk):** 20 GB SSD trở lên.
+  - **CPU:** Tối thiểu 1 vCPU (khuyên dùng 2 vCPU).
+  - **RAM:** Tối thiểu **1 GB – 2 GB RAM** (Hệ thống đã tinh gọn toàn bộ pipeline sang mô hình Drawing-led SSOT, loại bỏ thư viện nặng Open3D/tiền xử lý mesh lớn, giúp container chạy nhẹ nhàng và không lo tràn RAM/OOM).
+  - **Ổ cứng (Disk):** 10–20 GB SSD trở lên.
 - **Biến môi trường (.env):**
   - `LLM_PROVIDER`: `fpt` (hoặc `gemini`, `openai`)
   - `FPT_API_KEY`: API Key FPT AI
@@ -84,12 +84,12 @@ docker run -d -p 8000:8000 --name au2cad au2cad-cloud:latest
 ---
 
 #### 2. Phương án 1: AWS Lightsail (Khuyên dùng — Đơn giản & Tiết kiệm nhất)
-*Lightsail là VPS trọn gói của AWS với mức giá cố định ($10–$20/tháng), giao diện quản lý trực quan và cấp sẵn IP tĩnh.*
+*Lightsail là VPS trọn gói của AWS với mức giá cố định ($5–$10/tháng), giao diện quản lý trực quan và cấp sẵn IP tĩnh.*
 
 1. Đăng nhập [AWS Lightsail Console](https://lightsail.aws.amazon.com/).
 2. Bấm **Create instance**:
    - Nền tảng: **Linux/Unix** -> Blueprint: **OS Only** -> **Ubuntu 22.04 LTS** (hoặc 24.04).
-   - Chọn gói: **$10/tháng** (2 GB RAM, 1 vCPU) hoặc tốt nhất là **$20/tháng** (4 GB RAM, 2 vCPU).
+   - Chọn gói: **$5/tháng** (1 GB RAM, 1 vCPU) hoặc tốt nhất là **$10/tháng** (2 GB RAM, 1 vCPU / 2 vCPU).
 3. Cấu hình mạng:
    - Vào tab **Networking** -> Bấm **Attach static IP** để gắn IP cố định.
    - Tại mục **IPv4 Firewall**, bấm **Add rule** -> Mở cổng TCP **`8000`** (Custom) cùng với cổng **`80`** (HTTP) và **`443`** (HTTPS).

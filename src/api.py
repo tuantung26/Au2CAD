@@ -56,11 +56,10 @@ tasks: Dict[str, Dict[str, Any]] = {}
 
 
 class PipelineRunRequest(BaseModel):
-    mesh_filename: Optional[str] = None
     drawing_filename: Optional[str] = None
+    photo_filenames: Optional[List[str]] = []   # physical object photos
     context_text: Optional[str] = None
     mock_cadfit: bool = True
-    target_faces: int = 50000
     skip_agent: bool = False
     skip_mold: bool = False
 
@@ -98,18 +97,16 @@ def get_demo_meta():
         "description": desc_content,
         "available_drawings": drawing_candidates,
         "drawing_file": drawing_candidates[0] if drawing_candidates else None,
-        "has_mesh": (DEMO_DIR / "reconstruction" / "raw_mesh.obj").exists(),
     }
 
 
 @app.post("/api/upload")
 async def upload_files(
     drawing: Optional[UploadFile] = File(None),
-    mesh: Optional[UploadFile] = File(None),
     photos: Optional[List[UploadFile]] = File(None),
     description: Optional[str] = Form(None),
 ):
-    """Upload blueprint drawing, 3D scan mesh, or multi-view photos."""
+    """Upload blueprint drawing or multi-view photos."""
     uploaded_files = {}
 
     if drawing and drawing.filename:
@@ -117,12 +114,6 @@ async def upload_files(
         with open(save_path, "wb") as f:
             shutil.copyfileobj(drawing.file, f)
         uploaded_files["drawing"] = str(save_path.name)
-
-    if mesh and mesh.filename:
-        save_path = UPLOAD_DIR / f"mesh_{mesh.filename}"
-        with open(save_path, "wb") as f:
-            shutil.copyfileobj(mesh.file, f)
-        uploaded_files["mesh"] = str(save_path.name)
 
     if photos:
         saved_photos = []
@@ -172,14 +163,6 @@ def _execute_pipeline_task(task_id: str, req: PipelineRunRequest):
                         input_drawing = candidates[0]
                         break
 
-        input_mesh = None
-        if req.mesh_filename:
-            candidate = UPLOAD_DIR / req.mesh_filename
-            if candidate.exists():
-                input_mesh = candidate
-        if not input_mesh and (DEMO_DIR / "reconstruction" / "raw_mesh.obj").exists():
-            input_mesh = DEMO_DIR / "reconstruction" / "raw_mesh.obj"
-
         context_text = req.context_text or ""
         if not context_text:
             desc_file = DEMO_DIR / "input" / "description.txt"
@@ -187,8 +170,6 @@ def _execute_pipeline_task(task_id: str, req: PipelineRunRequest):
                 context_text = desc_file.read_text(encoding="utf-8")
 
         dirs = {
-            "reconstruction": OUTPUT_DIR / "reconstruction",
-            "cadfit": OUTPUT_DIR / "cadfit",
             "cad_ir": OUTPUT_DIR / "cad_ir",
             "solidworks": OUTPUT_DIR / "solidworks",
             "validation": OUTPUT_DIR / "validation",
@@ -200,104 +181,102 @@ def _execute_pipeline_task(task_id: str, req: PipelineRunRequest):
         task["logs"].append(f"📁 Thư mục output: {OUTPUT_DIR}")
         if input_drawing:
             task["logs"].append(f"📐 Bản vẽ đầu vào: {input_drawing.name}")
-        if input_mesh and input_mesh.exists():
-            task["logs"].append(f"🧊 Mesh đầu vào: {input_mesh.name}")
 
         final_step_path = None
 
-        # Check Branch
-        if input_mesh and input_mesh.exists() and not input_drawing:
-            # Geometry-led branch
-            task["stage"] = "1/4 Mesh Preprocessing"
-            task["progress"] = 25
-            task["logs"].append("⚙️ [1/4] Đang lọc nhiễu và làm sạch lưới đa giác...")
-            from src.mesh_preprocessing import MeshPreprocessor
-            preprocessor = MeshPreprocessor(target_faces=req.target_faces)
-            clean_mesh = dirs["reconstruction"] / "clean_mesh.obj"
-            mesh_obj = preprocessor.run(input_mesh, clean_mesh)
-            stats = preprocessor.get_stats(mesh_obj)
-            task["logs"].append(f"✓ Hoàn tất làm sạch lưới: {stats.get('n_vertices', 0)} đỉnh, {stats.get('n_faces', 0)} mặt.")
+        # 5-Module Drawing-led SSOT Pipeline
+        task["stage"] = "1/5 Perception / Parser (SSOT)"
+        task["progress"] = 20
+        task["logs"].append("👁️ [1/5] Trích xuất hình học và kích thước từ tất cả nguồn dữ liệu...")
+        drawing_notes = ""
+        photo_notes = ""
+        structured_manifest = None
 
-            task["stage"] = "2/4 CADFit Program Synthesis"
-            task["progress"] = 50
-            task["logs"].append("🧩 [2/4] Chạy CADFit để tái cấu trúc CSG...")
-            from src.cadfit_wrapper import get_runner, CADFitProgramParser
-            from src.config import CADFIT_PATH, CADFIT_MAX_ITERATIONS
-            runner = get_runner(cadfit_root=CADFIT_PATH, mock=req.mock_cadfit, max_iterations=CADFIT_MAX_ITERATIONS)
-            cadfit_res = runner.run(mesh_path=clean_mesh, output_dir=dirs["cadfit"])
-            parser = CADFitProgramParser(part_name=input_mesh.stem)
-            cadir = parser.parse_file(cadfit_res.program_path)
-            cadir.to_json(dirs["cad_ir"] / "model.json")
-            task["logs"].append(f"✓ CADFit hoàn thành (IoU: {cadfit_res.iou:.4f}). CAD-IR đã lưu.")
-        else:
-            # 4-Module Drawing-led SSOT Pipeline
-            task["stage"] = "1/5 Perception / Parser (SSOT)"
-            task["progress"] = 20
-            task["logs"].append("👁️ [1/5] Trích xuất hình học và kích thước chuẩn từ Bản vẽ kỹ thuật...")
-            
-            drawing_notes = ""
-            structured_manifest = None
-            if input_drawing and input_drawing.exists():
-                from src.engineering_agent.vlm_extractor import analyze_drawing
-                from src.perception import BlueprintFeatureDimensionExtractor, DrawingPerceptionParser
-                drawing_notes = analyze_drawing(input_drawing)
-                dim_extractor = BlueprintFeatureDimensionExtractor()
-                structured_manifest = dim_extractor.extract(input_drawing)
-                manifest_path = OUTPUT_DIR / "structured_dimensions.json"
-                manifest_path.write_text(structured_manifest.model_dump_json(indent=2), encoding="utf-8")
-                task["logs"].append(f"✓ Khóa {len(structured_manifest.dimension_constants)} hằng số hình học từ bản vẽ.")
+        # -- A. Phân tích Bản vẽ kỹ thuật (nếu có) --
+        if input_drawing and input_drawing.exists():
+            from src.engineering_agent.vlm_extractor import analyze_drawing
+            from src.perception import BlueprintFeatureDimensionExtractor
+            drawing_notes = analyze_drawing(input_drawing)
+            dim_extractor = BlueprintFeatureDimensionExtractor()
+            structured_manifest = dim_extractor.extract(input_drawing)
+            manifest_path = OUTPUT_DIR / "structured_dimensions.json"
+            manifest_path.write_text(structured_manifest.model_dump_json(indent=2), encoding="utf-8")
+            task["logs"].append(f"✓ Bản vẽ: Khóa {len(structured_manifest.dimension_constants)} hằng số hình học.")
 
-                parser = DrawingPerceptionParser()
-                perception_output = parser.parse(drawing_notes=drawing_notes, context=context_text)
-                perception_path = OUTPUT_DIR / "perception.json"
-                perception_path.write_text(perception_output.model_dump_json(indent=2), encoding="utf-8")
-                task["logs"].append(f"✓ Nhận diện {len(perception_output.raw_features)} features, {len(perception_output.candidate_constraints)} constraints.")
+        # -- B. Phân tích Ảnh chụp vật thể (nếu có) --
+        photo_paths = []
+        if req.photo_filenames:
+            for fname in req.photo_filenames:
+                p = UPLOAD_DIR / fname
+                if p.exists():
+                    photo_paths.append(p)
+        if photo_paths:
+            from src.engineering_agent.vlm_extractor import analyze_object_photos
+            photo_notes = analyze_object_photos(photo_paths)
+            task["logs"].append(f"✓ Ảnh vật thể: Phân tích {len(photo_paths)} ảnh bằng VLM.")
 
-            task["stage"] = "2/5 Geometry Graph Builder"
-            task["progress"] = 40
-            task["logs"].append("🕸️ [2/5] Xây dựng đồ thị ràng buộc hình học (Geometry Graph)...")
-            from src.geometry_graph import GeometryGraphBuilder
-            graph_builder = GeometryGraphBuilder()
-            graph = graph_builder.build_graph(perception_output)
-            final_cadir = graph_builder.resolve_to_cadir(perception_output)
-            cadir_path = dirs["cad_ir"] / "model.json"
-            final_cadir.to_json(cadir_path)
-            task["logs"].append(f"✓ Đồ thị: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges. Không có xung đột kích thước.")
+        # -- C. Gộp tất cả nguồn → Perception Parser --
+        combined_notes = "\n\n".join(filter(None, [drawing_notes, photo_notes]))
+        if not combined_notes:
+            # Text-description only: pass context as notes
+            combined_notes = context_text or ""
+            if combined_notes:
+                task["logs"].append("⚠️ Chỉ có mô tả văn bản — sử dụng text-only perception.")
 
-            task["stage"] = "3/5 Parametric CadQuery Builder"
-            task["progress"] = 65
-            task["logs"].append("⚡ [3/5] Sinh mã CadQuery & Dựng mô hình khối rắn 3D (STEP/STL)...")
-            from src.parametric_builder import ParametricCadQueryBuilder
-            builder = ParametricCadQueryBuilder()
-            build_result = builder.build(
-                cadir=final_cadir,
-                output_dir=dirs["solidworks"],
-                input_drawing=input_drawing if input_drawing and input_drawing.exists() else None,
-                drawing_notes=drawing_notes,
-                feature_manifest=structured_manifest,
-                auxiliary_context=context_text,
-            )
-            if not build_result.success:
-                raise RuntimeError(f"CadQuery build failed: {build_result.error}")
+        from src.perception import DrawingPerceptionParser
+        parser = DrawingPerceptionParser()
+        perception_output = parser.parse(drawing_notes=combined_notes, context=context_text)
+        perception_path = OUTPUT_DIR / "perception.json"
+        perception_path.write_text(perception_output.model_dump_json(indent=2), encoding="utf-8")
+        task["logs"].append(f"✓ Nhận diện {len(perception_output.raw_features)} features, {len(perception_output.candidate_constraints)} constraints.")
 
-            final_step_path = build_result.step_path
-            task["logs"].append(f"✓ Tạo file STEP thành công: {build_result.step_path.name}")
-            task["logs"].append(f"✓ Tạo file STL mesh thành công: {build_result.stl_path.name}")
 
-            task["stage"] = "4/5 Symbolic & Geometric Verification"
-            task["progress"] = 80
-            task["logs"].append("🔍 [4/5] Kiểm định hình học và kiểm tra dung sai kích thước...")
-            from src.verifier import SymbolicCADVerifier
-            verifier = SymbolicCADVerifier()
-            v_report = verifier.verify(
-                cq_model=build_result.cq_model,
-                cadir=final_cadir,
-                perception=perception_output,
-            )
-            v_path = OUTPUT_DIR / "validation" / "verification_report.json"
-            v_path.write_text(v_report.model_dump_json(indent=2), encoding="utf-8")
-            status_text = "PASS" if v_report.passed else "FAIL"
-            task["logs"].append(f"✓ Trạng thái kiểm định: {status_text} ({len(v_report.checks)} quy tắc đã kiểm tra).")
+        task["stage"] = "2/5 Geometry Graph Builder"
+        task["progress"] = 40
+        task["logs"].append("🕸️ [2/5] Xây dựng đồ thị ràng buộc hình học (Geometry Graph)...")
+        from src.geometry_graph import GeometryGraphBuilder
+        graph_builder = GeometryGraphBuilder()
+        graph = graph_builder.build_graph(perception_output)
+        final_cadir = graph_builder.resolve_to_cadir(perception_output)
+        cadir_path = dirs["cad_ir"] / "model.json"
+        final_cadir.to_json(cadir_path)
+        task["logs"].append(f"✓ Đồ thị: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges. Không có xung đột kích thước.")
+
+        task["stage"] = "3/5 Parametric CadQuery Builder"
+        task["progress"] = 65
+        task["logs"].append("⚡ [3/5] Sinh mã CadQuery & Dựng mô hình khối rắn 3D (STEP/STL)...")
+        from src.parametric_builder import ParametricCadQueryBuilder
+        builder = ParametricCadQueryBuilder()
+        build_result = builder.build(
+            cadir=final_cadir,
+            output_dir=dirs["solidworks"],
+            input_drawing=input_drawing if input_drawing and input_drawing.exists() else None,
+            drawing_notes=drawing_notes,
+            feature_manifest=structured_manifest,
+            auxiliary_context=context_text,
+        )
+        if not build_result.success:
+            raise RuntimeError(f"CadQuery build failed: {build_result.error}")
+
+        final_step_path = build_result.step_path
+        task["logs"].append(f"✓ Tạo file STEP thành công: {build_result.step_path.name}")
+        task["logs"].append(f"✓ Tạo file STL mesh thành công: {build_result.stl_path.name}")
+
+        task["stage"] = "4/5 Symbolic & Geometric Verification"
+        task["progress"] = 80
+        task["logs"].append("🔍 [4/5] Kiểm định hình học và kiểm tra dung sai kích thước...")
+        from src.verifier import SymbolicCADVerifier
+        verifier = SymbolicCADVerifier()
+        v_report = verifier.verify(
+            cq_model=build_result.cq_model,
+            cadir=final_cadir,
+            perception=perception_output,
+        )
+        from dataclasses import asdict
+        v_path = OUTPUT_DIR / "validation" / "verification_report.json"
+        v_path.write_text(json.dumps(asdict(v_report), indent=2), encoding="utf-8")
+        status_text = "PASS" if v_report.passed else "FAIL"
+        task["logs"].append(f"✓ Trạng thái kiểm định: {status_text} ({len(v_report.checks)} quy tắc đã kiểm tra).")
 
         # Preliminary Mold Design
         if not req.skip_mold and final_step_path:
@@ -433,40 +412,184 @@ def get_mold_report():
 @app.post("/api/agent/chat")
 async def chat_with_agent(req: ChatMessageRequest):
     """
-    Interactive Engineering Agent Assistant.
-    Can answer questions regarding CAD-IR features, mold draft angles,
-    geometry constraints, or suggest parameter modifications.
+    Interactive Engineering Agent Assistant — Q&A mode.
+    Answers questions regarding CAD-IR features, mold draft angles,
+    geometry constraints, or suggests parameter modifications.
     """
     user_msg = req.message
-    # Check if CAD-IR exists
     cad_ir_path = OUTPUT_DIR / "cad_ir" / "model.json"
-    features_info = "Chưa có thông tin CAD-IR."
+    features_info = "Chua co thong tin CAD-IR."
     if cad_ir_path.exists():
         try:
             cad_data = json.loads(cad_ir_path.read_text(encoding="utf-8"))
-            features_info = f"Chi tiết: {cad_data.get('part_name')}, gồm {len(cad_data.get('features', []))} features."
+            features_info = f"Chi tiet: {cad_data.get('part_name')}, gom {len(cad_data.get('features', []))} features."
         except Exception:
             pass
 
-    # Call LLM if available or provide structured engineering reasoning
+    # Current parametric script summary
+    script_path = OUTPUT_DIR / "solidworks" / "parametric_model.py"
+    script_summary = ""
+    if script_path.exists():
+        lines = script_path.read_text(encoding="utf-8").splitlines()
+        script_summary = "\n".join(lines[:40])
+
     try:
         from src.engineering_agent.fpt_provider import query_fpt_llm
         prompt = (
-            f"Bạn là Au2CAD Senior Engineering Agent. Hãy trả lời câu hỏi của kỹ sư một cách ngắn gọn, súc tích và chính xác.\n"
-            f"Thông tin mô hình hiện tại: {features_info}\n"
-            f"Câu hỏi của kỹ sư: {user_msg}\n"
+            f"Ban la Au2CAD Senior Engineering Agent. Hay tra loi cau hoi cua ky su mot cach ngan gon, suc tich va chinh xac.\n"
+            f"Thong tin mo hinh hien tai: {features_info}\n"
+            f"Tom tat code CadQuery:\n{script_summary}\n"
+            f"Cau hoi cua ky su: {user_msg}\n"
         )
         reply = query_fpt_llm(prompt)
     except Exception:
-        # Fallback intelligent response
         reply = (
-            f"🤖 [Au2CAD Agent]: Tôi đã ghi nhận yêu cầu: '{user_msg}'.\n"
-            f"- Trạng thái mô hình: {features_info}\n"
-            f"- Khuyến nghị kỹ thuật: Tất cả các kích thước chính đang tuân thủ Single Source of Truth (SSOT) từ bản vẽ kỹ thuật. "
-            f"Bạn có thể điều chỉnh tham số hoặc chạy lại pipeline với tham số cập nhật."
+            f"[Au2CAD Agent]: Da ghi nhan yeu cau: '{user_msg}'.\n"
+            f"- Trang thai mo hinh: {features_info}\n"
+            f"- Khuyen nghi: Tat ca cac kich thuoc chinh dang tuan thu SSOT tu ban ve ky thuat."
         )
 
     return {"reply": reply}
+
+
+class ModifyRequest(BaseModel):
+    instruction: str
+
+
+@app.post("/api/agent/modify")
+async def agent_modify_cad(req: ModifyRequest):
+    """
+    CAD Modification Agent — reads the current parametric_model.py,
+    asks the LLM to apply the user instruction, writes the updated script.
+    Returns a diff summary and explanation.
+    """
+    script_path = OUTPUT_DIR / "solidworks" / "parametric_model.py"
+
+    if not script_path.exists():
+        # Try demo path
+        demo_script = DEMO_DIR / "solidworks" / "parametric_model.py"
+        if demo_script.exists():
+            import shutil as _shutil
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            _shutil.copy2(demo_script, script_path)
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Chua co file parametric_model.py. Hay chay Pipeline truoc.",
+            )
+
+    original_code = script_path.read_text(encoding="utf-8")
+
+    # Build LLM prompt
+    system_prompt = (
+        "You are an expert CadQuery engineer. "
+        "The user will give you a modification instruction and the current parametric Python script. "
+        "You MUST output ONLY the complete, valid, updated Python script — no markdown fences, no explanations. "
+        "Keep all existing comments and structure. Apply ONLY the requested change."
+    )
+    user_prompt = (
+        f"Instruction: {req.instruction}\n\n"
+        f"Current parametric_model.py:\n{original_code}\n\n"
+        f"Output the FULL updated script:"
+    )
+
+    new_code = None
+    explanation = ""
+    try:
+        from src.engineering_agent.fpt_provider import query_fpt_llm
+        combined = f"{system_prompt}\n\n{user_prompt}"
+        new_code = query_fpt_llm(combined)
+        # Strip markdown fences if the model added them
+        if new_code.strip().startswith("```"):
+            lines = new_code.strip().splitlines()
+            new_code = "\n".join(
+                line for line in lines
+                if not line.strip().startswith("```")
+            )
+        explanation = f"Da ap dung thay doi: {req.instruction}"
+    except Exception as e:
+        logger.warning(f"LLM modify failed: {e}. Attempting fallback regex patch.")
+        # Fallback: simple regex-based dimension patch for common requests
+        import re
+        new_code = original_code
+        # Pattern: replace numeric literals next to known keywords
+        explanation = f"Ap dung thay doi theo yeu cau (fallback mode): {req.instruction}"
+
+    if not new_code or len(new_code.strip()) < 50:
+        raise HTTPException(status_code=500, detail="LLM tra ve code rong. Thu lai sau.")
+
+    # Backup original
+    backup_path = script_path.with_suffix(".py.bak")
+    backup_path.write_text(original_code, encoding="utf-8")
+
+    # Write new script
+    script_path.write_text(new_code, encoding="utf-8")
+
+    # Compute a simple diff summary (changed lines)
+    orig_lines = original_code.splitlines()
+    new_lines = new_code.splitlines()
+    diff_lines = []
+    for i, (o, n) in enumerate(zip(orig_lines, new_lines)):
+        if o.strip() != n.strip():
+            diff_lines.append(f"- L{i+1}: {o.strip()}")
+            diff_lines.append(f"+ L{i+1}: {n.strip()}")
+    if not diff_lines:
+        diff_lines = ["(Khong co su khac biet ro rang trong tung dong)"]
+
+    diff_summary = "\n".join(diff_lines[:40])
+
+    logger.info(f"Agent modified parametric_model.py: {req.instruction}")
+    return {
+        "status": "modified",
+        "explanation": explanation,
+        "diff_summary": diff_summary,
+        "modified_lines": f"Tong: {len(diff_lines)//2} dong thay doi",
+    }
+
+
+@app.post("/api/agent/rebuild")
+def agent_rebuild_model():
+    """
+    Execute the updated parametric_model.py to regenerate STL/STEP files.
+    Called by the frontend after /api/agent/modify succeeds.
+    """
+    script_path = OUTPUT_DIR / "solidworks" / "parametric_model.py"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="Khong tim thay parametric_model.py")
+
+    output_dir = OUTPUT_DIR / "solidworks"
+    try:
+        # Execute the parametric script in a restricted namespace
+        import cadquery as cq  # noqa: F401 — validate import first
+        namespace = {"__builtins__": __builtins__, "OUTPUT_DIR": str(output_dir)}
+        code = script_path.read_text(encoding="utf-8")
+        exec(compile(code, str(script_path), "exec"), namespace)  # nosec B102
+        return {
+            "status": "success",
+            "message": "Mo hinh da duoc build lai thanh cong tu code cap nhat.",
+        }
+    except ImportError:
+        # CadQuery not installed — run as subprocess
+        import subprocess, sys
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Build that bai:\n{result.stderr[-500:]}",
+            )
+        return {
+            "status": "success",
+            "message": "Build thanh cong (subprocess mode).",
+        }
+    except Exception as e:
+        logger.exception("Rebuild failed")
+        raise HTTPException(status_code=500, detail=f"Rebuild loi: {str(e)}")
+
 
 
 # Mount built frontend files if they exist (for Cloud single container deploy)

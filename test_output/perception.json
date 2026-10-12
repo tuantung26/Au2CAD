@@ -1,0 +1,10 @@
+{
+  "part_name": "MechanicalPart",
+  "overview": "",
+  "drawing_is_primary_truth": true,
+  "centerlines": [],
+  "raw_features": [],
+  "candidate_constraints": [],
+  "assembly_join_sequence": [],
+  "metadata": {}
+}

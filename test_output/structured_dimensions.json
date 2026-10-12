@@ -1,0 +1,103 @@
+{
+  "part_name": "Mechanical Support Bracket",
+  "component_type": "Support Bracket with Cylindrical Boss",
+  "overall_length_mm": 100.0,
+  "overall_width_mm": 62.0,
+  "base_plate": {
+    "id": "base_plate_01",
+    "description": "Primary mounting base plate",
+    "length_mm": 100.0,
+    "width_mm": 62.0,
+    "thickness_mm": 18.0
+  },
+  "upper_boss": {
+    "id": "upper_boss_01",
+    "description": "Upper cylindrical boss with through-bore",
+    "outer_diameter_mm": 44.0,
+    "inner_bore_diameter_mm": 28.0,
+    "length_span_mm": 62.0,
+    "center_height_from_base_mm": 50.0
+  },
+  "bottom_slot": {
+    "id": "bottom_slot_01",
+    "description": "Underside rectangular relief slot",
+    "width_mm": 28.0,
+    "height_mm": 9.0,
+    "offset_from_reference_face_mm": 8.0
+  },
+  "front_cutout": {
+    "id": "front_cutout_01",
+    "description": "Front semicircular arc cutout",
+    "radius_mm": 22.0,
+    "cut_depth_mm": 6.0
+  },
+  "transition_web": {
+    "id": "transition_web_01",
+    "description": "Sloped structural rib web",
+    "thickness_mm": 26.0,
+    "start_height_mm": 18.0,
+    "end_height_mm": 50.0
+  },
+  "dimension_constants": [
+    {
+      "constant_name": "overall_length",
+      "value_mm": 100.0,
+      "feature_reference": "overall length of base"
+    },
+    {
+      "constant_name": "overall_width",
+      "value_mm": 62.0,
+      "feature_reference": "overall width of base"
+    },
+    {
+      "constant_name": "base_thickness",
+      "value_mm": 18.0,
+      "feature_reference": "height of base plate"
+    },
+    {
+      "constant_name": "center_height",
+      "value_mm": 50.0,
+      "feature_reference": "height from base to boss center"
+    },
+    {
+      "constant_name": "boss_outer_dia",
+      "value_mm": 44.0,
+      "feature_reference": "outer diameter of upper boss"
+    },
+    {
+      "constant_name": "boss_inner_dia",
+      "value_mm": 28.0,
+      "feature_reference": "inner bore diameter of upper boss"
+    },
+    {
+      "constant_name": "slot_width",
+      "value_mm": 28.0,
+      "feature_reference": "width of bottom rectangular slot"
+    },
+    {
+      "constant_name": "slot_height",
+      "value_mm": 9.0,
+      "feature_reference": "height of bottom rectangular slot"
+    },
+    {
+      "constant_name": "slot_offset",
+      "value_mm": 8.0,
+      "feature_reference": "rear offset distance to slot"
+    },
+    {
+      "constant_name": "front_cutout_radius",
+      "value_mm": 22.0,
+      "feature_reference": "radius of front arc cutout"
+    },
+    {
+      "constant_name": "front_cutout_depth",
+      "value_mm": 6.0,
+      "feature_reference": "depth of front cutout"
+    },
+    {
+      "constant_name": "side_wall_width",
+      "value_mm": 18.0,
+      "feature_reference": "width of side web walls"
+    }
+  ]
+}
