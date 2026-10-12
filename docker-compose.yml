@@ -1,0 +1,17 @@
+services:
+  au2cad:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: au2cad-cloud:latest
+    container_name: au2cad-app
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - LLM_PROVIDER=fpt
+      - CADFIT_MOCK=true
+    volumes:
+      - ./output:/app/output
+      - ./uploads:/app/uploads
+    restart: unless-stopped
