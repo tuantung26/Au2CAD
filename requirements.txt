@@ -1,0 +1,13 @@
+trimesh
+open3d
+numpy
+scipy
+matplotlib
+cadquery
+langchain
+langgraph
+langchain-core
+pydantic
+python-dotenv
+rich
+typer

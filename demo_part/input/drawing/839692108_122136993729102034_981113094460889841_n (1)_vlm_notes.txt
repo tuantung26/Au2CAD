@@ -1,0 +1,60 @@
+# Technical Engineering Drawing Analysis & 3D CAD Modeling Specification
+
+---
+
+## 1. Part Classification & Purpose
+* **Component Type:** **Machined Support Bracket / Bearing Block**
+* **Primary Function:** Serves as a structural mounting bracket designed to house a cylindrical shaft, pin, or bearing within its upper vertical boss, while providing a ribbed/flanged base with a center cutout and mounting provisions to secure it to a mating flat surface.
+
+---
+
+## 2. Primary Datums & Coordinate System
+To reconstruct this part accurately in a 3D CAD environment (e.g., SolidWorks, Creo, Fusion 360), use the following coordinate framework:
+* **Origin (0, 0, 0):** Defined at the bottom-right-rear corner of the base (or aligned with the center axis of the upper circular boss for radial symmetry).
+* **Primary Datum Plane ($XY$):** Bottom planar face of the base.
+* **Secondary Datum Plane ($YZ$):** Rear vertical planar face of the base/flange.
+* **Tertiary Datum Plane ($XZ$):** Center symmetry plane running longitudinally through the middle of the part.
+
+---
+
+## 3. Major Geometric Sub-features
+
+### A. Base & Main Body Profile
+* **Overall Length:** $100\text{ mm}$ (measured from rear vertical face to the center of the front semicircular cutout).
+* **Overall Width (Span):** $62\text{ mm}$.
+* **Base Height / Thickness:** $18\text{ mm}$ (vertical wall thickness at the sides).
+* **Side Recesses (Top View):** 
+  * Two symmetrical outer side channels of width $18\text{ mm}$ flanking the central body.
+  * Flange wall thicknesses on left/right edges are $9\text{ mm}$ each.
+* **Front Semicircular Cutout:** Defined by a radius of **$\text{R}22\text{ mm}$** centered on the front edge of the base profile.
+
+### B. Upper Cylindrical Boss
+* **Outer Diameter ($\varnothing$OD):** $\varnothing 44\text{ mm}$.
+* **Inner Bore Diameter ($\varnothing$ID):** $\varnothing 28\text{ mm}$ (through-hole).
+* **Vertical Height:** The center axis of the main boss is located at a height of **$50\text{ mm}$** from the bottom datum plane (base).
+* **Transition Webs / Ribs:** Sloped structural ribs smoothly tangent from the top cylindrical boss down to the horizontal top surface of the base block.
+
+### C. Internal Cavities, Slots & Bottom Cutouts
+* **Bottom Rectangular Slot / Notch:**
+  * **Width:** $28\text{ mm}$.
+  * **Height (Depth from bottom base):** $9\text{ mm}$.
+  * **Location from Rear Face:** $8\text{ mm}$ offset from the rear vertical wall.
+
+---
+
+## 4. Summary Dimension Table
+
+| Feature Description | Geometric Parameter | Nominal Value ($\text{mm}$) | Notes / Tolerances |
+| :--- | :--- | :--- | :--- |
+| **Overall Length** | Length ($L$) | $100$ | Rear face to front R22 center |
+| **Overall Width** | Width ($W$) | $62$ | Total transverse span |
+| **Upper Boss Outer Dia.** | Diameter | $\varnothing 44$ | Cylindrical feature |
+| **Upper Boss Inner Bore** | Diameter | $\varnothing 28$ | Through-hole |
+| **Boss Center Height** | Height ($H$) | $50$ | Measured from bottom base |
+| **Base Thickness** | Height | $18$ | Side flange vertical height |
+| **Front Radius** | Radius | $\text{R}22$ | Semicircular front cutout |
+| **Side Wall Thickness** | Width | $9$ | Left and right outer wall sections |
+| **Side Channel Width** | Width | $18$ | Intermediate top-view cut width |
+| **Bottom Notch Width** | Width | $28$ | Underside recess width |
+| **Bottom Notch Height** | Depth | $9$ | Underside recess depth |
+| **Bottom Notch Offset** | Distance | $8$ | Offset from rear reference face |

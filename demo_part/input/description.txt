@@ -1,0 +1,34 @@
+# ⚙️ Mechanical Part Drawing Description
+
+## 📐 Overview
+This image shows a **mechanical component** represented in **two orthographic views** — a **front view** (top) and a **top view** (bottom).  
+The drawing includes **precise dimensions** and **geometric features** used for manufacturing or engineering design.
+
+---
+
+## 🔸 Front View
+- Triangular upper section leading to a **circular boss** on the right.  
+- The circular boss contains **two concentric holes**:
+  - Inner diameter: **Ø28**
+  - Outer diameter: **Ø44**
+- Vertical height: **50 mm**
+- Lower rectangular base height: **18 mm**
+- Step width: **28 mm**
+- Step depth: **8 mm**
+- Thickness of the smaller section: **9 mm**
+
+---
+
+## 🔹 Top View
+- **Rectangular base** with a **semicircular cutout** at one end.  
+- Radius of the semicircular cutout: **R22**
+- Overall length: **100 mm**
+- Total width: **62 mm**
+- Side margins: **9 mm**
+- Section heights on each side: **18 mm**
+
+---
+
+## 🧩 Interpretation
+This drawing defines a **mechanical bracket or support piece**, likely used in **machine assemblies**.  
+The orthographic projection ensures accurate communication of dimensions for **fabrication or CAD modeling**.
