@@ -286,15 +286,60 @@ Mở file `.env` (tạo từ `.env.example`) và điền thông tin:
 
 ```bash
 # Chọn một trong các provider sau:
-LLM_PROVIDER=openai          # hoặc: anthropic | google | azure_openai
+LLM_PROVIDER=fpt             # hoặc: openai | anthropic | google | azure_openai | fpt_ai_factory
 
 # Model name
-LLM_MODEL=gpt-4o             # gpt-4o | claude-3-5-sonnet | gemini-2.0-flash | ...
+LLM_MODEL=Quyet-1.0-Large     # Quyet-1.0-Large (SystemOne) | Qwen/Qwen2.5-72B-Instruct | gpt-4o | ...
 
 # API Key tương ứng với provider đã chọn:
-OPENAI_API_KEY=sk-...
+# ── FPT AI FACTORY ──
+FPT_API_KEY=your-api-key
+FPT_BASE_URL=https://mkp-api.fptcloud.com/v1
+FPT_SYSTEMONE_URL=https://mkp-api.fptcloud.com/v1/systemone
+
+# ── Khác ──
+# OPENAI_API_KEY=sk-...
 # ANTHROPIC_API_KEY=sk-ant-...
 # GOOGLE_API_KEY=...
+```
+
+#### FPT AI FACTORY SystemOne API (Quyet-1.0-Large)
+FPT AI FACTORY hỗ trợ cả endpoint SystemOne (`/v1/systemone`) cho mô hình quyết định `Quyet-1.0-Large` và endpoint OpenAI-compatible (`/v1/chat/completions`):
+
+```bash
+curl -X POST https://mkp-api.fptcloud.com/v1/systemone \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "model": "Quyet-1.0-Large",
+    "state": {
+        "message": "Please close my card, I lost it yesterday."
+    },
+    "questions": {
+        "intent": {
+            "type": "choice",
+            "instructions": "What does the customer want?",
+            "criteria": {
+                "cancel": "close the card",
+                "limit": "change the limit",
+                "other": null
+            }
+        },
+        "urgent": {
+            "type": "noul",
+            "instructions": "The request is urgent."
+        },
+        "mood": {
+            "type": "score",
+            "instructions": "How upset is the customer?",
+            "criteria": [
+                "calm",
+                "annoyed",
+                "angry"
+            ]
+        }
+    }
+}'
 ```
 
 > Nếu chưa điền LLM provider, pipeline vẫn chạy được với flag `--skip-agent`.

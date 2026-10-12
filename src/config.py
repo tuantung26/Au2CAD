@@ -24,6 +24,9 @@ LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+FPT_API_KEY: str = os.getenv("FPT_API_KEY") or os.getenv("FPT_AI_FACTORY_API_KEY", "")
+FPT_BASE_URL: str = os.getenv("FPT_BASE_URL", "https://mkp-api.fptcloud.com/v1")
+FPT_SYSTEMONE_URL: str = os.getenv("FPT_SYSTEMONE_URL", "https://mkp-api.fptcloud.com/v1/systemone")
 
 # ── VLM ───────────────────────────────────────────────────────
 VLM_PROVIDER: str = os.getenv("VLM_PROVIDER", "google")

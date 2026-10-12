@@ -94,41 +94,50 @@ def create_chat_model(provider: str, model_name: str) -> Any:
             huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"),
         )
         return ChatHuggingFace(llm=llm)
+    elif p in ("fpt", "fpt_ai_factory", "fpt-ai-factory", "fptcloud", "fpt_cloud"):
+        from src.engineering_agent.fpt_provider import create_fpt_model
+        return create_fpt_model(model_name)
     return None
 
 
 def invoke_llm_with_fallback(prompt: str) -> str:
     """
-    Invokes the preferred LLM from .env (prioritizing Groq and Hugging Face),
+    Invokes the preferred LLM from .env (prioritizing user config),
     automatically falling back to resilient alternative free models if any error occurs.
     """
     import os
-    from src.config import LLM_PROVIDER, LLM_MODEL, GOOGLE_API_KEY
+    from src.config import LLM_PROVIDER, LLM_MODEL, GOOGLE_API_KEY, FPT_API_KEY
 
     candidates: list[tuple[str, str]] = []
 
-    # 1. Primary choice from config (e.g. groq or huggingface)
+    # 1. Primary choice from config (e.g. fpt, groq, huggingface)
     primary_prov = (LLM_PROVIDER or "groq").lower()
-    primary_model = LLM_MODEL or "llama-3.3-70b-versatile"
+    primary_model = LLM_MODEL or "Quyet-1.0-Large"
     candidates.append((primary_prov, primary_model))
 
-    # 2. Add Groq candidates first if GROQ_API_KEY exists
+    # 2. Add FPT AI Factory candidates if FPT_API_KEY exists
+    if FPT_API_KEY or os.environ.get("FPT_API_KEY") or os.environ.get("FPT_AI_FACTORY_API_KEY"):
+        for m in ("Quyet-1.0-Large", "Qwen/Qwen2.5-72B-Instruct", "meta-llama/Llama-3.1-70B-Instruct"):
+            if ("fpt", m) not in candidates:
+                candidates.append(("fpt", m))
+
+    # 3. Add Groq candidates first if GROQ_API_KEY exists
     if os.environ.get("GROQ_API_KEY"):
         for m in ("llama-3.3-70b-versatile", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"):
             if ("groq", m) not in candidates:
                 candidates.append(("groq", m))
 
-    # 3. Add Hugging Face candidates if token exists
+    # 4. Add Hugging Face candidates if token exists
     if os.environ.get("HUGGINGFACEHUB_API_TOKEN"):
         for m in ("Qwen/Qwen2.5-Coder-32B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"):
             if ("huggingface", m) not in candidates:
                 candidates.append(("huggingface", m))
 
-    # 4. Add OpenAI if key exists
+    # 5. Add OpenAI if key exists
     if os.environ.get("OPENAI_API_KEY"):
         candidates.append(("openai", "gpt-4o"))
 
-    # 5. Fallback: Google high-quota lightweight models
+    # 6. Fallback: Google high-quota lightweight models
     if GOOGLE_API_KEY or os.environ.get("GOOGLE_API_KEY"):
         for m in ("gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-flash-latest"):
             if ("google", m) not in candidates and ("google", f"models/{m}") not in candidates:
