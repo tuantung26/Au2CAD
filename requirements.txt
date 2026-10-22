@@ -6,6 +6,8 @@ cadquery
 langchain
 langgraph
 langchain-core
+langchain-google-genai
+langchain-openai
 pydantic
 python-dotenv
 rich
@@ -13,3 +15,7 @@ typer
 fastapi
 uvicorn
 python-multipart
+networkx
+Pillow
+requests
+google-genai
